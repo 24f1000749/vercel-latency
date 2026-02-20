@@ -53,16 +53,3 @@ async def latency_metrics(req: LatencyRequest):
             "breaches": sum(1 for l in latencies if l > req.threshold_ms),
         }
     return result
-```
-
----
-
-**File 2: `api/latency_data.json`**
-
-Copy the entire JSON from the file you uploaded (`q-vercel-latency.json`) — paste it as-is.
-
----
-
-**File 3: `requirements.txt`**
-```
-fastapi
