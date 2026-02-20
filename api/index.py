@@ -1,6 +1,17 @@
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import json
 import statistics
-from http.server import BaseHTTPRequestHandler
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 TELEMETRY = [
   {"region":"apac","latency_ms":235.92,"uptime_pct":99.191},
@@ -51,51 +62,30 @@ def percentile(data, p):
         return sorted_data[-1]
     return sorted_data[lower] + (index - lower) * (sorted_data[upper] - sorted_data[lower])
 
-def add_cors(handler):
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    handler.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-    handler.send_header("Access-Control-Max-Age", "86400")
+@app.post("/api")
+async def latency_metrics(request: Request):
+    body = await request.json()
+    regions = body.get("regions", [])
+    threshold = body.get("threshold_ms", 0)
 
-class handler(BaseHTTPRequestHandler):
-    def do_OPTIONS(self):
-        self.send_response(204)
-        add_cors(self)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+    result = {}
+    for region in regions:
+        records = [r for r in TELEMETRY if r["region"] == region]
+        if not records:
+            result[region] = {"avg_latency": 0, "p95_latency": 0, "avg_uptime": 0, "breaches": 0}
+            continue
+        latencies = [r["latency_ms"] for r in records]
+        uptimes = [r["uptime_pct"] for r in records]
+        result[region] = {
+            "avg_latency": round(statistics.mean(latencies), 4),
+            "p95_latency": round(percentile(latencies, 95), 4),
+            "avg_uptime": round(statistics.mean(uptimes), 4),
+            "breaches": sum(1 for l in latencies if l > threshold),
+        }
+    return JSONResponse(content=result)
+```
 
-    def do_GET(self):
-        self.send_response(200)
-        add_cors(self)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps({"status": "ok"}).encode())
-
-    def do_POST(self):
-        length = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(length))
-        regions = body.get("regions", [])
-        threshold = body.get("threshold_ms", 0)
-
-        result = {}
-        for region in regions:
-            records = [r for r in TELEMETRY if r["region"] == region]
-            if not records:
-                result[region] = {"avg_latency": 0, "p95_latency": 0, "avg_uptime": 0, "breaches": 0}
-                continue
-            latencies = [r["latency_ms"] for r in records]
-            uptimes = [r["uptime_pct"] for r in records]
-            result[region] = {
-                "avg_latency": round(statistics.mean(latencies), 4),
-                "p95_latency": round(percentile(latencies, 95), 4),
-                "avg_uptime": round(statistics.mean(uptimes), 4),
-                "breaches": sum(1 for l in latencies if l > threshold),
-            }
-
-        response = json.dumps(result).encode()
-        self.send_response(200)
-        add_cors(self)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(response)))
-        self.end_headers()
-        self.wfile.write(response)
+And also create/update **`requirements.txt`**:
+```
+fastapi
+uvicorn
