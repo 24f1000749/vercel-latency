@@ -1,5 +1,4 @@
-import json
-import statistics
+import json, statistics
 from http.server import BaseHTTPRequestHandler
 
 TELEMETRY = [
@@ -41,61 +40,40 @@ TELEMETRY = [
   {"region":"amer","latency_ms":187.73,"uptime_pct":98.486}
 ]
 
-def percentile(data, p):
-    sorted_data = sorted(data)
-    n = len(sorted_data)
-    index = (p / 100) * (n - 1)
-    lower = int(index)
-    upper = lower + 1
-    if upper >= n:
-        return sorted_data[-1]
-    return sorted_data[lower] + (index - lower) * (sorted_data[upper] - sorted_data[lower])
-
-def add_cors(h):
-    h.send_header("Access-Control-Allow-Origin", "*")
-    h.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    h.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-    h.send_header("Access-Control-Max-Age", "86400")
+def pct(data, p):
+    s = sorted(data); n = len(s)
+    i = (p/100)*(n-1); lo = int(i); hi = lo+1
+    return s[-1] if hi >= n else s[lo]+(i-lo)*(s[hi]-s[lo])
 
 class handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
-        add_cors(self)
-        self.send_header("Content-Length", "0")
+        self._cors()
         self.end_headers()
-
-    def do_GET(self):
-        self.send_response(200)
-        add_cors(self)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps({"status": "ok"}).encode())
 
     def do_POST(self):
-        length = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(length))
-        regions = body.get("regions", [])
-        threshold = body.get("threshold_ms", 0)
-
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length",0))))
+        regions, threshold = body.get("regions",[]), body.get("threshold_ms",0)
         result = {}
         for region in regions:
-            records = [r for r in TELEMETRY if r["region"] == region]
-            if not records:
-                result[region] = {"avg_latency": 0, "p95_latency": 0, "avg_uptime": 0, "breaches": 0}
-                continue
-            latencies = [r["latency_ms"] for r in records]
-            uptimes = [r["uptime_pct"] for r in records]
+            rows = [r for r in TELEMETRY if r["region"]==region]
+            lat = [r["latency_ms"] for r in rows]
+            upt = [r["uptime_pct"] for r in rows]
             result[region] = {
-                "avg_latency": round(statistics.mean(latencies), 4),
-                "p95_latency": round(percentile(latencies, 95), 4),
-                "avg_uptime": round(statistics.mean(uptimes), 4),
-                "breaches": sum(1 for l in latencies if l > threshold),
+                "avg_latency": round(statistics.mean(lat),4),
+                "p95_latency": round(pct(lat,95),4),
+                "avg_uptime": round(statistics.mean(upt),4),
+                "breaches": sum(1 for l in lat if l > threshold)
             }
-
-        response = json.dumps(result).encode()
+        res = json.dumps(result).encode()
         self.send_response(200)
-        add_cors(self)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(response)))
+        self._cors()
+        self.send_header("Content-Type","application/json")
+        self.send_header("Content-Length",str(len(res)))
         self.end_headers()
-        self.wfile.write(response)
+        self.wfile.write(res)
+
+    def _cors(self):
+        self.send_header("Access-Control-Allow-Origin","*")
+        self.send_header("Access-Control-Allow-Methods","GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers","*")
