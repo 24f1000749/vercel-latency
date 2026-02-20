@@ -51,22 +51,22 @@ def percentile(data, p):
         return sorted_data[-1]
     return sorted_data[lower] + (index - lower) * (sorted_data[upper] - sorted_data[lower])
 
-def cors_headers(handler):
+def add_cors(handler):
     handler.send_header("Access-Control-Allow-Origin", "*")
     handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    handler.send_header("Access-Control-Allow-Headers", "*")
+    handler.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
     handler.send_header("Access-Control-Max-Age", "86400")
 
 class handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
-        self.send_response(200)
-        cors_headers(self)
+        self.send_response(204)
+        add_cors(self)
         self.send_header("Content-Length", "0")
         self.end_headers()
 
     def do_GET(self):
         self.send_response(200)
-        cors_headers(self)
+        add_cors(self)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps({"status": "ok"}).encode())
@@ -92,8 +92,10 @@ class handler(BaseHTTPRequestHandler):
                 "breaches": sum(1 for l in latencies if l > threshold),
             }
 
+        response = json.dumps(result).encode()
         self.send_response(200)
-        cors_headers(self)
+        add_cors(self)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response)))
         self.end_headers()
-        self.wfile.write(json.dumps(result).encode())
+        self.wfile.write(response)
